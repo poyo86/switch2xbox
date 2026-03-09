@@ -90,7 +90,7 @@ int main() {
             fd = open(eventdevice, O_RDWR|O_NONBLOCK);
 
             if (fd != -1) {
-                int rc;
+                int rc = -1;
 
                 // Only event* devices should be checked
                 if (strncmp(entry->d_name, "ev", 2) == 0) {
