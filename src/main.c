@@ -85,17 +85,13 @@ int main() {
 
         strcpy(eventdevice, devinput);
 
-        if (entry->d_type == DT_CHR) {
+        // Only event* devices should be checked
+        if (strncmp(entry->d_name, "ev", 2) == 0) {
             strcat(eventdevice, entry->d_name);
             fd = open(eventdevice, O_RDWR|O_NONBLOCK);
 
             if (fd != -1) {
-                int rc = -1;
-
-                // Only event* devices should be checked
-                if (strncmp(entry->d_name, "ev", 2) == 0) {
-                    rc = handle_controller(fd);
-                }
+                int rc = handle_controller(fd);
 
                 if (rc != 0) {
                     if (close(fd) == -1) {
