@@ -25,14 +25,30 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <string.h>
+#include <pthread.h>
 #include <sys/inotify.h>
 #include <libevdev-1.0/libevdev/libevdev.h>
+
+void *to_xbox(void *dev) {
+    libevdev_grab(dev, LIBEVDEV_GRAB);
+
+    // TODO: Create a virtual Xbox Controller and redirect the inputs there
+
+    int fd = libevdev_get_fd(dev);
+
+    // Free resources after the controller is disconnected
+    libevdev_free(dev);
+    if (close(fd) == -1) {
+        perror("[WARNING]: Could not close file descriptor");
+    }
+    return NULL;
+}
 
 /*
  * Return codes:
  * 0 - the device is a supported controller
  * 1 - the device is not a supported controller, but no error was found
- * -1 - something went wrong when processing the device
+ * -1 - something went wrong in the function
  */
 int handle_controller(int fd) {
     struct libevdev *dev;
@@ -50,12 +66,25 @@ int handle_controller(int fd) {
         if (libevdev_get_id_product(dev) == 0x2009 &&
             libevdev_has_event_code(dev, EV_KEY, BTN_SOUTH))
         {
-            fprintf(stderr, "%s found ", libevdev_get_name(dev));
-            /* TODO: Create new thread to handle the found controller.
-             * Don't forget to close the file descriptor after the controller
-             * is disconnected */
+            /* fprintf(stderr, "%s found at %s\n", libevdev_get_name(dev),
+             *        get path from fd);
+             * I don't like printing the same line from different parts of the
+             * program */
+            pthread_t controller_thread;
 
-            libevdev_free(dev);
+            int rc = pthread_create(&controller_thread, NULL, to_xbox, dev);
+
+            if (rc != 0) {
+                fprintf(stderr, "Failed to create controller thread: %s\n",
+                        strerror(rc));
+
+                libevdev_free(dev);
+                return -1;
+            } else {
+                // NOTE: This will be removed in the future
+                fprintf(stderr, "%s found ", libevdev_get_name(dev));
+            }
+
             return 0;
         }
     }
@@ -98,9 +127,14 @@ int main() {
                     if (close(fd) == -1) {
                         perror("[WARNING]: Could not close file descriptor");
                     }
+
+                    if (rc == -1) {
+                        return 1;
+                    }
                 } else {
                     /* Continuation of printed message of handle_controller()
                      * when a controller was found */
+                    // NOTE: This will be removed in the future
                     fprintf(stderr, "at %s\n", eventdevice);
                 }
             }
