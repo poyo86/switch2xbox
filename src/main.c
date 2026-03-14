@@ -25,6 +25,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <string.h>
+#include <sys/inotify.h>
 #include <libevdev-1.0/libevdev/libevdev.h>
 
 /*
@@ -111,10 +112,48 @@ int main() {
         perror(NULL);
     }
 
-    // int fd = inotify_init();
-    // int wd = inotify_add_watch(fd, devinput, IN_CREATE|IN_DELETE);
+    int fd_inotify = inotify_init();
+    if (fd_inotify == -1) {
+        perror("[ERROR]: Failed to initialize inotify instance");
+        return 1;
+    }
 
-    // TODO: Wait for new devices to be connected
+    int wd = inotify_add_watch(fd_inotify, devinput,
+                               IN_CREATE|IN_DELETE|IN_ATTRIB);
+    if (wd == -1) {
+        perror("[ERROR]: Failed to add new watch");
+        close(fd_inotify);
+        return 1;
+    }
+
+    char buf[4096];
+    const struct inotify_event *event;
+    ssize_t size;
+
+    for (;;) {
+        size = read(fd_inotify, buf, sizeof(buf));
+        if (size == -1) {
+            perror("[ERROR]: Failed to read inotify events\n");
+            close(fd_inotify);
+            return 1;
+        }
+
+        for (char *ptr = buf; ptr < buf + size;
+            ptr += sizeof(struct inotify_event) + event->len)
+        {
+            event = (const struct inotify_event *) ptr;
+
+            if (event->mask & IN_CREATE || event->mask & IN_ATTRIB) {
+                /* TODO: Handle device creation or attribute change.
+                 * Multiple events will be generated on the same device,
+                 * however the same device must be handled only once */
+            } else if (event->mask & IN_DELETE) {
+                // TODO: Handle device removal
+            }
+        }
+    }
+
+    close(fd_inotify);
 
     return 0;
 }
