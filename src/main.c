@@ -20,6 +20,11 @@
 
 #define VERSION "v0.0.1"
 
+#define DEVINPUT_DIR "/dev/input/"
+
+#define NINTENDO_VENDOR_ID 0x57e
+#define NINTENDO_PRO_CONTROLLER 0x2009
+
 #include <stdio.h>
 #include <dirent.h>
 #include <fcntl.h>
@@ -62,8 +67,10 @@ int handle_controller(int fd) {
         return -1;
     }
 
-    if (libevdev_get_id_vendor(dev) == 0x57e) {
-        if (libevdev_get_id_product(dev) == 0x2009 &&
+    const int id_vendor = libevdev_get_id_vendor(dev);
+    const int id_product = libevdev_get_id_product(dev);
+    if (id_vendor == NINTENDO_VENDOR_ID) {
+        if (id_product == NINTENDO_PRO_CONTROLLER &&
             libevdev_has_event_code(dev, EV_KEY, BTN_SOUTH))
         {
             /* fprintf(stderr, "%s found at %s\n", libevdev_get_name(dev),
@@ -98,12 +105,11 @@ int main() {
             "Starting daemon...\n"
             "Looking for Nintendo Switch Controllers...\n");
 
-    char devinput[] = "/dev/input/";
-    DIR *dir = opendir(devinput);
+    DIR *dir = opendir(DEVINPUT_DIR);
     struct dirent *entry;
 
     if (dir == NULL) {
-        fprintf(stderr, "[ERROR]: Cannot open directory %s: ", devinput);
+        fprintf(stderr, "[ERROR]: Cannot open directory %s: ", DEVINPUT_DIR);
         perror(NULL);
         fprintf(stderr, "Exiting...\n");
         return 1;
@@ -113,7 +119,7 @@ int main() {
         int fd;
         char eventdevice[19];
 
-        strcpy(eventdevice, devinput);
+        strcpy(eventdevice, DEVINPUT_DIR);
 
         // Only event* devices should be checked
         if (strncmp(entry->d_name, "ev", 2) == 0) {
@@ -142,7 +148,8 @@ int main() {
     }
 
     if (closedir(dir) == -1) {
-        fprintf(stderr, "[WARNING]: Could not close directory %s: ", devinput);
+        fprintf(stderr, "[WARNING]: Could not close directory %s: ",
+                DEVINPUT_DIR);
         perror(NULL);
     }
 
@@ -152,7 +159,7 @@ int main() {
         return 1;
     }
 
-    int wd = inotify_add_watch(fd_inotify, devinput,
+    int wd = inotify_add_watch(fd_inotify, DEVINPUT_DIR,
                                IN_CREATE|IN_DELETE|IN_ATTRIB);
     if (wd == -1) {
         perror("[ERROR]: Failed to add new watch");
