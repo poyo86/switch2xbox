@@ -55,7 +55,7 @@ void *to_xbox(void *dev) {
  * 1 - the device is not a supported controller, but no error was found
  * -1 - something went wrong in the function
  */
-int handle_controller(int fd) {
+int handle_controller(int fd, char file_name[]) {
     struct libevdev *dev;
 
     /*
@@ -73,10 +73,8 @@ int handle_controller(int fd) {
         if (id_product == NINTENDO_PRO_CONTROLLER &&
             libevdev_has_event_code(dev, EV_KEY, BTN_SOUTH))
         {
-            /* fprintf(stderr, "%s found at %s\n", libevdev_get_name(dev),
-             *        get path from fd);
-             * I don't like printing the same line from different parts of the
-             * program */
+            fprintf(stderr, "%s found at " DEVINPUT_DIR "%s\n",
+                    libevdev_get_name(dev), file_name);
             pthread_t controller_thread;
 
             int rc = pthread_create(&controller_thread, NULL, to_xbox, dev);
@@ -87,9 +85,6 @@ int handle_controller(int fd) {
 
                 libevdev_free(dev);
                 return -1;
-            } else {
-                // NOTE: This will be removed in the future
-                fprintf(stderr, "%s found ", libevdev_get_name(dev));
             }
 
             return 0;
@@ -117,17 +112,15 @@ int main() {
 
     while ((entry = readdir(dir)) != NULL) {
         int fd;
-        char eventdevice[19];
-
-        strcpy(eventdevice, DEVINPUT_DIR);
+        char device_path[19] = DEVINPUT_DIR;
 
         // Only event* devices should be checked
         if (strncmp(entry->d_name, "ev", 2) == 0) {
-            strcat(eventdevice, entry->d_name);
-            fd = open(eventdevice, O_RDWR|O_NONBLOCK);
+            strlcat(device_path, entry->d_name, sizeof(device_path));
+            fd = open(device_path, O_RDWR|O_NONBLOCK);
 
             if (fd != -1) {
-                int rc = handle_controller(fd);
+                int rc = handle_controller(fd, entry->d_name);
 
                 if (rc != 0) {
                     if (close(fd) == -1) {
@@ -137,11 +130,6 @@ int main() {
                     if (rc == -1) {
                         return 1;
                     }
-                } else {
-                    /* Continuation of printed message of handle_controller()
-                     * when a controller was found */
-                    // NOTE: This will be removed in the future
-                    fprintf(stderr, "at %s\n", eventdevice);
                 }
             }
         }
