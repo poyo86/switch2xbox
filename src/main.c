@@ -34,6 +34,13 @@
 #include <sys/inotify.h>
 #include <libevdev-1.0/libevdev/libevdev.h>
 
+#include "controller_management.h"
+
+// Linked list to store all the connected controllers
+controller *controller_list = NULL;
+
+pthread_mutex_t lock;
+
 void *to_xbox(void *dev) {
     libevdev_grab(dev, LIBEVDEV_GRAB);
 
@@ -46,6 +53,7 @@ void *to_xbox(void *dev) {
     if (close(fd) == -1) {
         perror("[WARNING]: Could not close file descriptor");
     }
+    remove_controller(pthread_self());
     return NULL;
 }
 
@@ -55,7 +63,7 @@ void *to_xbox(void *dev) {
  * 1 - the device is not a supported controller, but no error was found
  * -1 - something went wrong in the function
  */
-int handle_controller(int fd, char file_name[]) {
+int handle_controller(int fd, const char file_name[]) {
     struct libevdev *dev;
 
     /*
@@ -85,6 +93,8 @@ int handle_controller(int fd, char file_name[]) {
 
                 libevdev_free(dev);
                 return -1;
+            } else {
+                add_controller(file_name, controller_thread);
             }
 
             return 0;
@@ -95,7 +105,35 @@ int handle_controller(int fd, char file_name[]) {
     return 1;
 }
 
+int read_device(const char *file_name) {
+    int fd;
+    char device_path[19] = DEVINPUT_DIR;
+
+    // Only event* devices should be checked
+    if (strncmp(file_name, "ev", 2) == 0) {
+        strlcat(device_path, file_name, sizeof(device_path));
+        fd = open(device_path, O_RDWR|O_NONBLOCK);
+
+        if (fd != -1) {
+            int rc = handle_controller(fd, file_name);
+
+            if (rc != 0) {
+                if (close(fd) == -1) {
+                    perror("[WARNING]: Could not close file descriptor");
+                }
+
+                if (rc == -1) {
+                    return -1;
+                }
+            }
+        }
+    }
+    return 0;
+}
+
 int main() {
+    pthread_mutex_init(&lock, NULL);
+
     fprintf(stderr, "switch2xbox " VERSION "\n"
             "Starting daemon...\n"
             "Looking for Nintendo Switch Controllers...\n");
@@ -111,28 +149,7 @@ int main() {
     }
 
     while ((entry = readdir(dir)) != NULL) {
-        int fd;
-        char device_path[19] = DEVINPUT_DIR;
-
-        // Only event* devices should be checked
-        if (strncmp(entry->d_name, "ev", 2) == 0) {
-            strlcat(device_path, entry->d_name, sizeof(device_path));
-            fd = open(device_path, O_RDWR|O_NONBLOCK);
-
-            if (fd != -1) {
-                int rc = handle_controller(fd, entry->d_name);
-
-                if (rc != 0) {
-                    if (close(fd) == -1) {
-                        perror("[WARNING]: Could not close file descriptor");
-                    }
-
-                    if (rc == -1) {
-                        return 1;
-                    }
-                }
-            }
-        }
+        if (read_device(entry->d_name) == -1) return 1;
     }
 
     if (closedir(dir) == -1) {
@@ -172,12 +189,34 @@ int main() {
         {
             event = (const struct inotify_event *) ptr;
 
-            if (event->mask & IN_CREATE || event->mask & IN_ATTRIB) {
-                /* TODO: Handle device creation or attribute change.
-                 * Multiple events will be generated on the same device,
-                 * however the same device must be handled only once */
+            if (event->mask & IN_CREATE) {
+                /* If IN_CREATE event is registered, it means the device didn't
+                 * exist before, so no need to check the controller_list */
+                if (read_device(event->name) == -1) return 1;
+            } else if (event->mask & IN_ATTRIB) {
+                /* Multiple events will be generated on the same device.
+                 * For safety and sanity, it must be assumed that the user will
+                 * have read access to the /dev/input/eventX file the entire
+                 * time, which means multiple threads for the same controller
+                 * would be created. controller_list exists to prevent this */
+                pthread_mutex_lock(&lock);
+                controller *ptr = controller_list;
+                while (ptr != NULL) {
+                    if (strncmp(ptr->file_name, event->name,
+                                sizeof(ptr->file_name)) == 0)
+                    {
+                        pthread_mutex_unlock(&lock);
+                        goto ignore_controller;
+                    }
+                    ptr = ptr->next;
+                }
+                pthread_mutex_unlock(&lock);
+                if (read_device(event->name) == -1) return 1;
+        ignore_controller:
+                ;
             } else if (event->mask & IN_DELETE) {
-                // TODO: Handle device removal
+                /* NOTE: This section may not be needed, as the device removal
+                 * can probably be detected in the to_xbox() function */
             }
         }
     }
