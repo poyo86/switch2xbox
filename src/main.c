@@ -83,9 +83,16 @@ int handle_controller(int fd, const char file_name[]) {
         {
             fprintf(stderr, "%s found at " DEVINPUT_DIR "%s\n",
                     libevdev_get_name(dev), file_name);
-            pthread_t controller_thread;
 
-            int rc = pthread_create(&controller_thread, NULL, to_xbox, dev);
+            pthread_t controller_thread;
+            pthread_attr_t attr;
+
+            pthread_attr_init(&attr);
+            pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+
+            int rc = pthread_create(&controller_thread, &attr, to_xbox, dev);
+
+            pthread_attr_destroy(&attr);
 
             if (rc != 0) {
                 fprintf(stderr, "Failed to create controller thread: %s\n",
