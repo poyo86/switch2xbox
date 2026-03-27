@@ -69,15 +69,14 @@ void *to_xbox(void *dev) {
 /*
  * Return codes:
  * 0 - the device is a supported controller
- * 1 - the device is not a supported controller, but no error was found
- * -1 - something went wrong in the function
+ * 1 - the device is not a supported controller
  */
 int handle_controller(int fd, const char file_name[]) {
     struct libevdev *dev;
 
     if (libevdev_new_from_fd(fd, &dev) < 0) {
         perror("[ERROR]: Failed to open device");
-        return -1;
+        exit(EXIT_FAILURE);
     }
 
     const int id_vendor = libevdev_get_id_vendor(dev);
@@ -99,14 +98,14 @@ int handle_controller(int fd, const char file_name[]) {
 
             pthread_attr_destroy(&attr);
 
-            if (rc != 0) {
+            if (rc == 0) {
+                add_controller(file_name, controller_thread);
+            } else {
                 fprintf(stderr, "Failed to create controller thread: %s\n",
                         strerror(rc));
 
                 libevdev_free(dev);
-                return -1;
-            } else {
-                add_controller(file_name, controller_thread);
+                exit(EXIT_FAILURE);
             }
 
             return 0;
@@ -117,7 +116,7 @@ int handle_controller(int fd, const char file_name[]) {
     return 1;
 }
 
-int read_device(const char *file_name) {
+void read_device(const char *file_name) {
     int fd;
     char device_path[19] = DEVINPUT_DIR;
 
@@ -129,18 +128,13 @@ int read_device(const char *file_name) {
         if (fd != -1) {
             int rc = handle_controller(fd, file_name);
 
-            if (rc != 0) {
+            if (rc == 1) {
                 if (close(fd) == -1) {
                     perror("[WARNING]: Could not close file descriptor");
-                }
-
-                if (rc == -1) {
-                    return -1;
                 }
             }
         }
     }
-    return 0;
 }
 
 int main() {
@@ -157,11 +151,11 @@ int main() {
         fprintf(stderr, "[ERROR]: Cannot open directory %s: ", DEVINPUT_DIR);
         perror(NULL);
         fprintf(stderr, "Exiting...\n");
-        return 1;
+        return EXIT_FAILURE;
     }
 
     while ((entry = readdir(dir)) != NULL) {
-        if (read_device(entry->d_name) == -1) return 1;
+        read_device(entry->d_name);
     }
 
     if (closedir(dir) == -1) {
@@ -173,7 +167,7 @@ int main() {
     int fd_inotify = inotify_init();
     if (fd_inotify == -1) {
         perror("[ERROR]: Failed to initialize inotify instance");
-        return 1;
+        return EXIT_FAILURE;
     }
 
     int wd = inotify_add_watch(fd_inotify, DEVINPUT_DIR,
@@ -181,7 +175,7 @@ int main() {
     if (wd == -1) {
         perror("[ERROR]: Failed to add new watch");
         close(fd_inotify);
-        return 1;
+        return EXIT_FAILURE;
     }
 
     char buf[4096];
@@ -193,7 +187,7 @@ int main() {
         if (size == -1) {
             perror("[ERROR]: Failed to read inotify events\n");
             close(fd_inotify);
-            return 1;
+            return EXIT_FAILURE;
         }
 
         for (char *ptr = buf; ptr < buf + size;
@@ -204,7 +198,7 @@ int main() {
             if (event->mask & IN_CREATE) {
                 /* If IN_CREATE event is registered, it means the device didn't
                  * exist before, so no need to check the controller_list */
-                if (read_device(event->name) == -1) return 1;
+                read_device(event->name);
             } else if (event->mask & IN_ATTRIB) {
                 /* Multiple events will be generated on the same device.
                  * For safety and sanity, it must be assumed that the user will
@@ -223,7 +217,7 @@ int main() {
                     ptr = ptr->next;
                 }
                 pthread_mutex_unlock(&lock);
-                if (read_device(event->name) == -1) return 1;
+                read_device(event->name);
         ignore_controller:
                 ;
             } else if (event->mask & IN_DELETE) {
