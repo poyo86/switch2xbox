@@ -25,6 +25,7 @@ Required libraries and tools:
 * git
 * gcc or clang
 * make
+* pkg-config
 * libevdev
 
 Clone the repository:

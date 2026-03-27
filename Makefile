@@ -5,7 +5,7 @@ WARNING_FLAGS = -Wall -Wextra -Werror
 OPTIMIZATION_FLAGS = -O2
 
 switch2xbox: $(SOURCE_FILES)
-	$(CC) $(WARNING_FLAGS) $(OPTIMIZATION_FLAGS) $(SOURCE_FILES) -levdev -lpthread -o switch2xbox
+	$(CC) $(WARNING_FLAGS) $(OPTIMIZATION_FLAGS) $(shell pkg-config --cflags libevdev) $(SOURCE_FILES) -levdev -lpthread -o switch2xbox
 
 clean:
 	rm switch2xbox

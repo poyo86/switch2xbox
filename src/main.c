@@ -30,9 +30,11 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <string.h>
+#include <stdlib.h>
 #include <pthread.h>
 #include <sys/inotify.h>
 #include <libevdev-1.0/libevdev/libevdev.h>
+#include <libevdev-1.0/libevdev/libevdev-uinput.h>
 
 #include "controller_management.h"
 
@@ -44,11 +46,18 @@ pthread_mutex_t lock;
 void *to_xbox(void *dev) {
     libevdev_grab(dev, LIBEVDEV_GRAB);
 
-    // TODO: Create a virtual Xbox Controller and redirect the inputs there
+    struct libevdev_uinput *uidev = NULL;
+    create_xbox_controller(&uidev);
+
+    if (uidev == NULL) {
+        fprintf(stderr, "[ERROR]: Failed to create Xbox virtual controller\n");
+        exit(EXIT_FAILURE);
+    }
 
     int fd = libevdev_get_fd(dev);
 
     // Free resources after the controller is disconnected
+    libevdev_uinput_destroy(uidev);
     libevdev_free(dev);
     if (close(fd) == -1) {
         perror("[WARNING]: Could not close file descriptor");
@@ -66,10 +75,6 @@ void *to_xbox(void *dev) {
 int handle_controller(int fd, const char file_name[]) {
     struct libevdev *dev;
 
-    /*
-     * TODO: Investigate where this could fail
-     * Should the entire process exit?
-     */
     if (libevdev_new_from_fd(fd, &dev) < 0) {
         perror("[ERROR]: Failed to open device");
         return -1;
@@ -79,7 +84,7 @@ int handle_controller(int fd, const char file_name[]) {
     const int id_product = libevdev_get_id_product(dev);
     if (id_vendor == NINTENDO_VENDOR_ID) {
         if (id_product == NINTENDO_PRO_CONTROLLER &&
-            libevdev_has_event_code(dev, EV_KEY, BTN_SOUTH))
+            libevdev_has_event_code(dev, EV_KEY, BTN_GAMEPAD))
         {
             fprintf(stderr, "%s found at " DEVINPUT_DIR "%s\n",
                     libevdev_get_name(dev), file_name);
